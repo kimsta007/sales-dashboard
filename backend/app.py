@@ -126,7 +126,7 @@ def get_features():
 def get_dataset_stats():
     """Get dataset statistics"""
     try:
-        df = pd.read_csv('data/Nike US Dataset11.csv')
+        df = pd.read_csv('dataset.csv')
         
         stats = {
             'total_records': len(df),
