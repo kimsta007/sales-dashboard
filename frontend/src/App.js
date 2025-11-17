@@ -1,180 +1,84 @@
-// App.js
 import React, { useState, useEffect } from 'react';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
-  LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer 
-} from 'recharts';
-import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
+import PredictionForm from './components/PredictionForm';
+import SalesChart from './components/SalesChart';
+import StatsDashboard from './components/StatsDashboard';
+import { predictionAPI } from './services/api';
 import './App.css';
 
-const App = () => {
-  const [salesData, setSalesData] = useState([]);
+function App() {
   const [predictions, setPredictions] = useState([]);
-  const [featureImportance, setFeatureImportance] = useState({});
-  const [selectedYear, setSelectedYear] = useState(2021);
-  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [health, setHealth] = useState(null);
 
-  // Fetch historical data
   useEffect(() => {
-    fetch('http://localhost:8000/api/sales-data')
-      .then(response => response.json())
-      .then(data => setSalesData(data));
+    checkHealth();
+    loadStats();
   }, []);
 
-  // Fetch predictions when year changes
-  useEffect(() => {
-    predictSales();
-  }, [selectedYear]);
-
-  const predictSales = async () => {
-    setLoading(true);
+  const checkHealth = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/predict-sales', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ year: selectedYear }),
-      });
-      const data = await response.json();
-      setPredictions(data.predictions);
-      setFeatureImportance(data.feature_importance);
-    } catch (error) {
-      console.error('Error predicting sales:', error);
+      const response = await predictionAPI.health();
+      setHealth(response.data);
+    } catch (err) {
+      setHealth({ status: 'unhealthy', model_loaded: false });
     }
-    setLoading(false);
   };
 
-  // Prepare data for visualizations
-  const monthlySales = salesData.reduce((acc, item) => {
-    const month = new Date(item['Invoice Date']).getMonth();
-    acc[month] = (acc[month] || 0) + item['Total Sales'];
-    return acc;
-  }, {});
+  const loadStats = async () => {
+    try {
+      const response = await predictionAPI.getStats();
+      setStats(response.data);
+    } catch (err) {
+      console.error('Failed to load stats:', err);
+    }
+  };
 
-  const monthlyData = Object.keys(monthlySales).map(month => ({
-    month: parseInt(month) + 1,
-    actual: monthlySales[month],
-    predicted: predictions.find(p => p.month === parseInt(month) + 1)?.predicted_sales || 0
-  }));
-
-  const productSales = salesData.reduce((acc, item) => {
-    acc[item.Product] = (acc[item.Product] || 0) + item['Total Sales'];
-    return acc;
-  }, {});
-
-  const productData = Object.keys(productSales).map(product => ({
-    name: product,
-    value: productSales[product]
-  }));
-
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+  const handleNewPrediction = (predictionResult) => {
+    setPredictions(prev => [predictionResult, ...prev].slice(0, 20)); // Keep last 20 predictions
+  };
 
   return (
-    <div className="dashboard">
-      <header className="dashboard-header">
-        <h1>Shoe Sales Analytics Dashboard</h1>
-        <div className="controls">
-          <label>
-            Predict Sales for Year:
-            <select 
-              value={selectedYear} 
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            >
-              <option value={2021}>2021</option>
-              <option value={2022}>2022</option>
-              <option value={2023}>2023</option>
-            </select>
-          </label>
-          <button onClick={predictSales} disabled={loading}>
-            {loading ? 'Predicting...' : 'Refresh Predictions'}
-          </button>
-        </div>
+    <div className="App">
+      <header className="App-header">
+        <h1>Nike Sales Prediction Dashboard</h1>
+        {health && (
+          <div className={`health-status ${health.status}`}>
+            Backend: {health.status} | Model: {health.model_loaded ? 'Loaded' : 'Not Loaded'}
+          </div>
+        )}
       </header>
 
-      <div className="dashboard-grid">
-        {/* Sales Prediction Chart */}
-        <div className="chart-container">
-          <h2>Monthly Sales Prediction vs Actual</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="actual" stroke="#8884d8" name="Actual Sales" />
-              <Line type="monotone" dataKey="predicted" stroke="#82ca9d" name="Predicted Sales" />
-            </LineChart>
-          </ResponsiveContainer>
+      <main className="App-main">
+        <div className="left-panel">
+          <PredictionForm onPrediction={handleNewPrediction} />
+          {stats && <StatsDashboard stats={stats} />}
         </div>
 
-        {/* Product Sales Distribution */}
-        <div className="chart-container">
-          <h2>Product Sales Distribution</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={productData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {productData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="right-panel">
+          <SalesChart predictions={predictions} />
+          
+          {predictions.length > 0 && (
+            <div className="predictions-list">
+              <h3>Recent Predictions</h3>
+              {predictions.map((pred, index) => (
+                <div key={index} className="prediction-item">
+                  <div className="prediction-header">
+                    <strong>{pred.input.Product}</strong>
+                    <span className="prediction-value">
+                      ${pred.prediction.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="prediction-details">
+                    {pred.input.Region} • {pred.input.Retailer} • {pred.input['Sales Method']}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-
-        {/* Feature Importance */}
-        <div className="chart-container">
-          <h2>Feature Importance in Prediction</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={Object.entries(featureImportance).map(([feature, importance]) => ({
-                feature,
-                importance
-              }))}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="feature" angle={-45} textAnchor="end" height={80} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="importance" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Regional Sales Map */}
-        <div className="chart-container">
-          <h2>Regional Sales Distribution</h2>
-          <div style={{ width: '100%', height: '300px' }}>
-            <ComposableMap>
-              <Geographies geography="/path/to/your/us-topojson.json">
-                {({ geographies }) =>
-                  geographies.map(geo => (
-                    <Geography
-                      key={geo.rsmKey}
-                      geography={geo}
-                      fill="#DDD"
-                      stroke="#FFF"
-                    />
-                  ))
-                }
-              </Geographies>
-            </ComposableMap>
-          </div>
-        </div>
-      </div>
+      </main>
     </div>
   );
-};
+}
 
 export default App;
